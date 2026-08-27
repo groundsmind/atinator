@@ -24,7 +24,7 @@ def _choose_and_delete[T](seq: MutableSequence[T]) -> T:
     return value
 
 class MemberPickerCog(commands.Cog):
-    def __init__(self, bot: Bot) -> None:
+    def __init__(self, bot: "Bot") -> None:
         self.bot = bot
         self.session = bot.session
 
@@ -143,5 +143,5 @@ class MemberPickerCog(commands.Cog):
         logger.info("Guild %s: @someone is now %s; %s left in bag", guild, member, member_bag_len)
         await member.add_roles(role)
 
-async def setup(client: Bot):
+async def setup(client: "Bot"):
     await client.add_cog(MemberPickerCog(client))

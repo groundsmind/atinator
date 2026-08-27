@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 class ReloadCog(commands.Cog):
-    def __init__(self, bot: Bot):
+    def __init__(self, bot: "Bot"):
         self.bot = bot
 
     @commands.command()
@@ -18,5 +18,5 @@ class ReloadCog(commands.Cog):
         await self.bot.reload_cogs()
         await ctx.message.delete()
 
-async def setup(client: Bot):
+async def setup(client: "Bot"):
     await client.add_cog(ReloadCog(client))
