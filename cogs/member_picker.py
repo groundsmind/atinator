@@ -68,6 +68,8 @@ class MemberPickerCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
+        if member.bot: return
+
         async with self.session.begin():
             guild_data = await self.session.get_one(GuildData, member.guild.id)
 
@@ -79,6 +81,8 @@ class MemberPickerCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_member_remove(self, payload: discord.RawMemberRemoveEvent) -> None:
+        if payload.user.bot: return
+
         async with self.session.begin():
             guild_data = await self.session.get_one(GuildData, payload.guild_id)
 
