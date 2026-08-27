@@ -65,6 +65,8 @@ class Bot(commands.Bot):
         else:
             raise ExtensionsFailed("One or more cogs failed to load", excs)
 
+        await self.tree.sync()
+
     async def load_cogs(self) -> None:
         await self._load_cogs_impl(reload=False)
 
@@ -76,8 +78,6 @@ class Bot(commands.Bot):
             await self.load_cogs()
         except ExtensionsFailed as exc:
             logger.error(exc.message, exc_info=exc)
-
-        await self.tree.sync()
 
 async def main() -> None:
     discord.utils.setup_logging()
