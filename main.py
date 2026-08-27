@@ -1,7 +1,7 @@
 import os
 import logging
 import asyncio
-from common import not_none
+from common import not_none, ExtensionsFailed
 
 from dotenv import load_dotenv
 
@@ -45,19 +45,25 @@ class Bot(commands.Bot):
             await self.change_presence(activity=discord.CustomActivity(f"{self.tester_name} is testing"))
 
     async def _load_cogs_impl(self, reload: bool = True) -> None:
-        load_func = self.reload_extension if reload else self.load_extension
-
         dir: str = "cogs"
+        excs: list[commands.ExtensionFailed] = []
         for root, _dirs, files in os.walk(dir):
             for file in files:
                 if not file.endswith(".py") or file == "__init__.py": continue
 
                 cog_path = os.path.join(root, file).replace("\\", "/").replace("/", ".")[:-len(".py")]
                 try:
-                    await load_func(cog_path)
-                    logger.info("Loaded cog %r", cog_path)
-                except Exception as exc:
-                    logger.error("Cog %r raised an error", cog_path, exc_info=exc)
+                    if not reload or (reload and cog_path not in self.extensions):
+                        await self.load_extension(cog_path)
+                    else:
+                        await self.reload_extension(cog_path)
+                except commands.ExtensionFailed as exc:
+                    excs.append(exc)
+
+        if len(excs) == 0:
+            logger.info("All cogs loaded successfully")
+        else:
+            raise ExtensionsFailed("One or more cogs failed to load", excs)
 
     async def load_cogs(self) -> None:
         await self._load_cogs_impl(reload=False)
@@ -66,7 +72,11 @@ class Bot(commands.Bot):
         await self._load_cogs_impl(reload=True)
     
     async def setup_hook(self) -> None:
-        await self.load_cogs()
+        try:
+            await self.load_cogs()
+        except ExtensionsFailed as exc:
+            logger.error(exc.message, exc_info=exc)
+
         await self.tree.sync()
 
 async def main() -> None:
