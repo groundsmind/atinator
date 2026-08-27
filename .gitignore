@@ -3,3 +3,4 @@ testname
 venv/
 .venv/
 __pycache__/
+db.sqlite

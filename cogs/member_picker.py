@@ -1,66 +1,143 @@
+import logging
+import random
+from common import not_none
+from collections.abc import MutableSequence
+from typing import TYPE_CHECKING
+
 import discord
 from discord.ext import commands
-from discord import app_commands
-import random
 
+if TYPE_CHECKING:
+    from main import Bot
 
-class randmember(commands.Cog):
-    def __init__(self, bot):
+from models import GuildData
+
+logger = logging.getLogger(__name__)
+
+def _choose_and_delete[T](seq: MutableSequence[T]) -> T:
+    if len(seq) == 0:
+        raise IndexError("Cannot choose from an empty sequence")
+
+    index = random.randint(0, len(seq) - 1)
+    value = seq[index]
+    del seq[index]
+    return value
+
+class MemberPickerCog(commands.Cog):
+    def __init__(self, bot: "Bot") -> None:
         self.bot = bot
-        self.members = []
+        self.session = bot.session
 
-    async def get_all_members(self, ctx):
-        #gets all non-bot members
-        self.members = [member async for member in ctx.guild.fetch_members(limit=None) if not member.bot]
-        random.shuffle(self.members)
-        print("members:")
-        print(self.members)
-
-    async def first_set(self, ctx):
-        await self.members[0].add_roles(self.role)
-        print(f"{self.members[0].name} is now @someone!")
-
-    async def change_someone(self, ctx):
-        if len(self.members) > 1:
-            await self.members[0].remove_roles(self.role)
-            self.members.pop(0)
-            await self.members[0].add_roles(self.role)
-            print(f"{self.members[0].name} is now @someone!")
-        else:
-            await self.get_all_members(ctx)
-            await self.first_set(ctx)
-
-    @commands.command()
-    @commands.has_permissions(manage_roles=True)
-    async def setup(self, ctx):
-        # makes someone role if it doesnt exist
-        self.role = discord.utils.get(ctx.guild.roles, name="someone")
-        if not self.role:
-            new_role = await ctx.guild.create_role(
-                name="someone",
-                mentionable=True
-            )
-            self.role = new_role
-            print('server didn\'t have "someone", role created!')
-        else:
-            print('server already has "someone" role.')
-
-        # fetch all members
-        await self.get_all_members(ctx)
-        # pick someone to be it
-        await self.first_set(ctx)
-
-        await ctx.message.delete()
-    
     @commands.Cog.listener()
-    async def on_message(self, ctx):
-        # ignores self messages
-        if ctx.author == self.bot.user:
-            return
+    async def on_ready(self) -> None:
+        for guild in self.bot.guilds:
+            async with self.session.begin():
+                guild_data = await self.session.get(GuildData, guild.id)
 
-        if str(self.role.id) in ctx.content and self.role:
-            await self.change_someone(ctx)
+            if guild_data is None:
+                await self.setup_guild(guild)
 
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        await self.setup_guild(guild)
 
-async def setup(client):
-    await client.add_cog(randmember(client))
+    @commands.Cog.listener()
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
+        async with self.session.begin():
+            await self.session.delete(self.session.get_one(GuildData, guild.id))
+            await self.session.commit()
+
+    async def setup_guild(self, guild: discord.Guild) -> None:
+        role = await guild.create_role(name="someone", mentionable=True)
+        async with self.session.begin():
+            self.session.add(GuildData(id=guild.id, role_id=role.id))
+            await self.session.commit()
+
+        await self.change_someone(guild)
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        guild = message.guild
+        if guild is None: return
+
+        async with self.session.begin():
+            guild_data = await self.session.get_one(GuildData, guild.id)
+
+        if guild_data.role_id in message.raw_role_mentions:
+            await self.change_someone(guild)
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member) -> None:
+        async with self.session.begin():
+            guild_data = await self.session.get_one(GuildData, member.guild.id)
+
+            if member.id not in guild_data.member_bag_all:
+                guild_data.member_bag_all.append(member.id)
+                guild_data.member_bag.append(member.id)
+
+            await self.session.commit()
+
+    @commands.Cog.listener()
+    async def on_raw_member_remove(self, payload: discord.RawMemberRemoveEvent) -> None:
+        async with self.session.begin():
+            guild_data = await self.session.get_one(GuildData, payload.guild_id)
+
+            try:
+                guild_data.member_bag.remove(payload.user.id)
+            except ValueError:
+                pass
+
+            await self.session.commit()
+
+    async def change_someone(self, guild: discord.Guild):
+        async with self.session.begin():
+            guild_data = await self.session.get_one(GuildData, guild.id)
+
+            role_id = guild_data.role_id
+            role = guild.get_role(role_id)
+            if role is None:
+                logger.error("Guild %s: Missing role %s", guild, role_id)
+                return
+
+            old_someone_id = guild_data.someone_id
+            if old_someone_id is not None:
+                old_someone_member = guild.get_member(old_someone_id)
+                if old_someone_member is not None:
+                    await old_someone_member.remove_roles(role)
+
+            # Instead of picking a member at random naively, we store an
+            # internal "bag" of members for each guild so that the
+            # distribution of people chosen to be @someone is more or less
+            # fair.
+            #
+            # The bag is a list of member IDs, from which we randomly choose
+            # and remove a value when we need a new @someone. If the bag is
+            # empty, we repopulate it with all members in the server.
+            #
+            # `member_bag_all` stores all members that have been in the guild
+            # at any point since the current bag was introduced. It is always
+            # a superset of the bag.
+
+            if len(guild_data.member_bag) == 0:
+                members = [
+                    member.id
+                    async for member in guild.fetch_members()
+                    if not member.bot
+                ]
+                guild_data.member_bag = members
+                guild_data.member_bag_all = members.copy() # .copy() may not be necessary?
+                logger.info('Guild %s: Repopulated bag with %s members', guild, len(members))
+
+            someone_id = _choose_and_delete(guild_data.member_bag)
+            guild_data.someone_id = someone_id
+
+            member_bag_len = len(guild_data.member_bag)
+
+            await self.session.commit()
+
+        member = not_none(guild.get_member(someone_id))
+        logger.info("Guild %s: @someone is now %s; %s left in bag", guild, member, member_bag_len)
+        await member.add_roles(role)
+
+async def setup(client: Bot):
+    await client.add_cog(MemberPickerCog(client))
