@@ -100,7 +100,7 @@ class MemberPickerCog(commands.Cog):
             role_id = guild_data.role_id
             role = guild.get_role(role_id)
             if role is None:
-                logger.error("Guild %s: Missing role %s", guild, role_id)
+                logger.error("Guild %r: Missing role %s", guild.name, role_id)
                 return
 
             old_someone_id = guild_data.someone_id
@@ -130,7 +130,7 @@ class MemberPickerCog(commands.Cog):
                 ]
                 guild_data.member_bag = members
                 guild_data.member_bag_all = members.copy() # .copy() may not be necessary?
-                logger.info('Guild %s: Repopulated bag with %s members', guild, len(members))
+                logger.info('Guild %r: Repopulated bag with %s members', guild.name, len(members))
 
             someone_id = _choose_and_delete(guild_data.member_bag)
             guild_data.someone_id = someone_id
@@ -140,7 +140,7 @@ class MemberPickerCog(commands.Cog):
             await self.session.commit()
 
         member = not_none(guild.get_member(someone_id))
-        logger.info("Guild %s: @someone is now %s; %s left in bag", guild, member, member_bag_len)
+        logger.info("Guild %r: @someone is now %r; %s left in bag", guild.name, member.name, member_bag_len)
         await member.add_roles(role)
 
 async def setup(client: "Bot"):
