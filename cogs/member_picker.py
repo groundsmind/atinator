@@ -8,9 +8,9 @@ import discord
 from discord.ext import commands
 
 if TYPE_CHECKING:
-    from main import Bot
+    from main import Bot, Context
 
-from models import GuildData
+from models import GuildData, OptOut
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class MemberPickerCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
-        if member.bot: return
+        if not await self.can_be_someone(member=member): return
 
         async with self.session.begin():
             guild_data = await self.session.get_one(GuildData, member.guild.id)
@@ -92,6 +92,48 @@ class MemberPickerCog(commands.Cog):
                 pass
 
             await self.session.commit()
+
+    @commands.hybrid_command(name="optout", description="Makes it so you're not pingable by @someone.")
+    async def optout(self, ctx: "Context") -> None:
+        async with self.session.begin():
+            author_id = ctx.author.id
+            guild_data = await self.session.get_one(GuildData, not_none(ctx.guild).id)
+            opted_out = await self.session.get(OptOut, author_id)
+            if opted_out is None:
+                self.session.add(OptOut(id=author_id))
+                if author_id not in guild_data.member_bag_all:
+                    guild_data.member_bag_all.pop(author_id)
+                    guild_data.member_bag.pop(author_id)
+
+                    logger.info(f"{ctx.author.name} opted out.")
+                    await ctx.send(f'Goodbye! you have opted out.')
+            else:
+                logger.info(f"{ctx.author.name} tried opting out, but they have already.")
+                await ctx.send(f'You are already opted out! :(')
+
+            await self.session.commit()
+
+    @commands.hybrid_command(name="optin", description="Adds you back to the pingable @someone list.")
+    async def optin(self, ctx: "Context") -> None:
+        async with self.session.begin():
+            author_id = ctx.author.id
+            guild_data = await self.session.get_one(GuildData, not_none(ctx.guild).id)
+            opted_out = await self.session.get(OptOut, author_id)
+            if opted_out is not None:
+                await self.session.delete(OptOut(id=author_id))
+                if author_id not in guild_data.member_bag_all:
+                    guild_data.member_bag_all.append(author_id)
+                    guild_data.member_bag.append(author_id)
+
+                    logger.info(f"{ctx.author.name} opted back in.")
+                    await ctx.send(f'Hi you have opted back in.')
+            else:
+                logger.info(f"{ctx.author.name} tried opting in, but they have already.")
+                await ctx.send(f'You are already opted in! :)')
+
+            await self.session.commit()
+
+
 
     async def change_someone(self, guild: discord.Guild):
         async with self.session.begin():
@@ -126,7 +168,7 @@ class MemberPickerCog(commands.Cog):
                 members = [
                     member.id
                     async for member in guild.fetch_members()
-                    if not member.bot
+                    if await self.can_be_someone(member=member)
                 ]
                 guild_data.member_bag = members
                 guild_data.member_bag_all = members.copy() # .copy() may not be necessary?
@@ -142,6 +184,12 @@ class MemberPickerCog(commands.Cog):
         member = not_none(guild.get_member(someone_id))
         logger.info("Guild %r: @someone is now %r; %s left in bag", guild.name, member.name, member_bag_len)
         await member.add_roles(role)
+
+    async def can_be_someone(self, member: discord.Member):
+        async with self.session.begin():
+            if not member.bot and await self.session.get(OptOut, member.id) is None:
+                return True
+            return False
 
 async def setup(client: "Bot"):
     await client.add_cog(MemberPickerCog(client))

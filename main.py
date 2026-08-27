@@ -88,7 +88,7 @@ async def main() -> None:
     if tester_name is not None:
         logger.warning("TESTER_NAME set; launching in testing mode")
 
-    token = not_none(os.getenv("TOKEN"))
+    token = not_none(os.getenv("BOKEN"))
 
     engine = create_async_engine("sqlite+aiosqlite:///db.sqlite")
     Session = async_sessionmaker(engine, expire_on_commit=False)

@@ -26,3 +26,8 @@ class GuildData(Base):
         MutableList.as_mutable(JSON),
         default=MutableList
     )
+
+class OptOut(Base):
+    __tablename__ = "opt_out"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
