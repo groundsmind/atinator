@@ -24,7 +24,7 @@ def _choose_and_delete[T](seq: MutableSequence[T]) -> T:
     return value
 
 class MemberPickerCog(commands.Cog):
-    def __init__(self, bot: "Bot") -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot = bot
         self.session = bot.session
 

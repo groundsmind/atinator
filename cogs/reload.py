@@ -18,5 +18,5 @@ class ReloadCog(commands.Cog):
         await self.bot.reload_cogs()
         await ctx.message.delete()
 
-async def setup(client: "Bot"):
+async def setup(client: Bot):
     await client.add_cog(ReloadCog(client))
