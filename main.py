@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+from typing import Callable
 from common import not_none, ExtensionsFailed
 
 from dotenv import load_dotenv
@@ -24,11 +25,9 @@ class Bot(commands.Bot):
     def __init__(
         self,
         *,
-        tester_name: str | None,
-        session: AsyncSession,
+        sm: Callable[[], AsyncSession],
     ):
-        self.tester_name = tester_name
-        self.session = session
+        self.sm = sm
 
         intents = discord.Intents.default()
         intents.message_content = True
@@ -41,31 +40,31 @@ class Bot(commands.Bot):
     async def on_ready(self) -> None:
         user = not_none(self.user)
         logger.info("Logged in as %r", f"{user.name}#{user.discriminator}")
-        if self.tester_name is not None:
-            await self.change_presence(activity=discord.CustomActivity(f"{self.tester_name} is testing"))
 
     async def _load_cogs_impl(self, reload: bool = True) -> None:
         dir: str = "cogs"
-        excs: list[commands.ExtensionFailed] = []
+        names: list[str] = ["jishaku"]
         for root, _dirs, files in os.walk(dir):
             for file in files:
                 if not file.endswith(".py") or file == "__init__.py": continue
+                names.append(os.path.join(root, file).replace("\\", "/").replace("/", ".")[:-len(".py")])
 
-                cog_path = os.path.join(root, file).replace("\\", "/").replace("/", ".")[:-len(".py")]
-                try:
-                    if not reload or (reload and cog_path not in self.extensions):
-                        await self.load_extension(cog_path)
-                    else:
-                        await self.reload_extension(cog_path)
-                except commands.ExtensionFailed as exc:
-                    excs.append(exc)
+        excs: list[commands.ExtensionFailed] = []
+        for name in names:
+            try:
+                if not reload or (reload and name not in self.extensions):
+                    await self.load_extension(name)
+                else:
+                    await self.reload_extension(name)
+            except commands.ExtensionFailed as exc:
+                excs.append(exc)
+
+        await self.tree.sync()
 
         if len(excs) == 0:
             logger.info("All cogs loaded successfully")
         else:
             raise ExtensionsFailed("One or more cogs failed to load", excs)
-
-        await self.tree.sync()
 
     async def load_cogs(self) -> None:
         await self._load_cogs_impl(reload=False)
@@ -84,21 +83,16 @@ async def main() -> None:
 
     load_dotenv()
 
-    tester_name = os.getenv("TESTER_NAME")
-    if tester_name is not None:
-        logger.warning("TESTER_NAME set; launching in testing mode")
-
-    token = not_none(os.getenv("BOKEN"))
+    token = not_none(os.getenv("TOKEN"))
 
     engine = create_async_engine("sqlite+aiosqlite:///db.sqlite")
-    Session = async_sessionmaker(engine, expire_on_commit=False)
+    sm = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    async with Session() as session:
-        bot = Bot(tester_name=tester_name, session=session)
-        await bot.start(token)
+    bot = Bot(sm=sm)
+    await bot.start(token)
 
 if __name__ == "__main__":
     try:

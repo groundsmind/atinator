@@ -18,7 +18,7 @@ class ReloadCog(commands.Cog):
     )
     @commands.is_owner()
     async def reload(self, ctx: "Context"):
-        logger.info(f"{ctx.author.name} used reload command")
+        logger.info("%r requested reload", ctx.author.name)
         try:
             await self.bot.reload_cogs()
             await ctx.send('All cogs reloaded successfully.')

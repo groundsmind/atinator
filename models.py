@@ -1,7 +1,8 @@
-from sqlalchemy import JSON, BigInteger, inspect
+from sqlalchemy import JSON, BigInteger, DateTime, Index, inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.ext.asyncio import AsyncAttrs
+from datetime import datetime
 
 class Base(AsyncAttrs, DeclarativeBase):
     def __repr__(self):
@@ -27,7 +28,21 @@ class GuildData(Base):
         default=MutableList
     )
 
-class OptOut(Base):
-    __tablename__ = "opt_out"
+class Optout(Base):
+    __tablename__ = "optout"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+
+class Ping(Base):
+    __tablename__ = "ping"
+
+    message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    someone_id: Mapped[int] = mapped_column(BigInteger)
+    author_id: Mapped[int] = mapped_column(BigInteger)
+    guild_id: Mapped[int] = mapped_column(BigInteger)
+    channel_id: Mapped[int] = mapped_column(BigInteger)
+    time: Mapped[datetime] = mapped_column(DateTime)
+
+    __table_args__ = (
+        Index("ping_someone_id_guild_id_idx", guild_id, someone_id),
+    )
