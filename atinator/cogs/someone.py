@@ -29,7 +29,6 @@ def _choose_and_delete[T](seq: MutableSequence[T]) -> T:
 
 # this could be a lot simpler (typescript just has Parameters<T>) but cant have
 # shit in python #Lol
-
 def _wrap_log_guild[**P](
     log_func: Callable[P, None]
 ) -> Callable[Concatenate[discord.Guild, P], None]:
@@ -60,27 +59,16 @@ class Someone(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild) -> None:
-        _guild_info(guild, 'Joined')
+        _guild_info(guild, "Bot added")
         async with self.sm() as session:
             await self._setup_guild(session, guild)
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild) -> None:
-        _guild_info(guild, 'Removed')
+        _guild_info(guild, "Bot removed")
         async with self.sm() as session:
             await session.delete(session.get_one(GuildData, guild.id))
             await session.commit()
-
-    async def _setup_guild(self, session: AsyncSession, guild: discord.Guild) -> None:
-        role = await self._create_role(guild)
-
-        session.add(GuildData(id=guild.id, role_id=role.id))
-        await session.commit()
-
-        await self._change_someone(session, guild)
-
-    async def _create_role(self, guild: discord.Guild) -> discord.Role:
-        return await guild.create_role(name="someone", mentionable=True)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -99,35 +87,21 @@ class Someone(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
         guild = member.guild
+        _guild_info(guild, "Member %r (ID %s) joined", member.name, member.id)
         async with self.sm() as session:
             if not await self._can_be_someone(session, member): return
 
-            guild_data = await session.get_one(GuildData, guild.id)
-
-            if member.id in guild_data.member_bag_all:
-                _guild_info(guild, "New member %r (ID %s) joined but was not added to bag", member.name, member.id)
-                return
-
-            guild_data.member_bag_all.append(member.id)
-            guild_data.member_bag.append(member.id)
-            _guild_info(guild, "New member %r (ID %s) joined and was added to bag")
-
+            await self._add_to_member_bag(session, guild, member)
             await session.commit()
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:
         guild = member.guild
+        _guild_info(guild, "Member %r (ID %s) left", member.name, member.id)
         async with self.sm() as session:
             if not await self._can_be_someone(session, member): return
 
-            guild_data = await session.get_one(GuildData, guild.id)
-
-            try:
-                guild_data.member_bag.remove(member.id)
-            except ValueError:
-                pass
-            _guild_info(guild, "Member %r (ID %s) removed from bag", member.name, member.id)
-
+            await self._remove_from_member_bag(session, guild, member)
             await session.commit()
 
     @commands.hybrid_command(description="Opt out of being pinged via @someone in any server")
@@ -137,7 +111,7 @@ class Someone(commands.Cog):
             opted_out = await session.get(Optout, author_id) is not None
 
             if opted_out:
-                logger.info("User %r (ID %s) tried to opt out, but they already have", ctx.author.name, author_id)
+                logger.info("User %r (ID %s) tried to opt out, but is already opted out", ctx.author.name, author_id)
                 await ctx.send("You are already opted out! :(")
                 return
 
@@ -145,12 +119,7 @@ class Someone(commands.Cog):
 
             for guild in self.bot.guilds:
                 if not guild.get_member(author_id): continue
-
-                guild_data = await session.get_one(GuildData, guild.id)
-                try:
-                    guild_data.member_bag.remove(author_id)
-                except ValueError:
-                    pass
+                await self._remove_from_member_bag(session, guild, ctx.author)
 
             await session.commit()
 
@@ -161,110 +130,23 @@ class Someone(commands.Cog):
     async def optin(self, ctx: "Context") -> None:
         async with self.sm() as session:
             author_id = ctx.author.id
-            opt_out = await session.get(Optout, author_id)
+            optout = await session.get(Optout, author_id)
 
-            if opt_out is None:
-                logger.info("User %r (ID %s) tried to opt in, but they already have", ctx.author.name, author_id)
+            if optout is None:
+                logger.info("User %r (ID %s) tried to opt in, but is already opted in", ctx.author.name, author_id)
                 await ctx.send("You are already opted in! :)")
                 return
 
-            await session.delete(opt_out)
+            await session.delete(optout)
 
             for guild in self.bot.guilds:
                 if not guild.get_member(author_id): continue
-
-                guild_data = await session.get_one(GuildData, guild.id)
-                if author_id not in guild_data.member_bag_all:
-                    guild_data.member_bag_all.append(author_id)
-                    guild_data.member_bag.append(author_id)
+                await self._add_to_member_bag(session, guild, ctx.author)
 
             await session.commit()
 
         logger.info("User %r (ID %s) opted in", ctx.author.name, author_id)
         await ctx.send("Hi! You have opted in.")
-
-    async def _change_someone(
-        self,
-        session: AsyncSession,
-        guild: discord.Guild,
-        message: discord.Message | None = None
-    ) -> None:
-        guild_data = await session.get_one(GuildData, guild.id)
-
-        role_id = guild_data.role_id
-        role = guild.get_role(role_id)
-        if role is None:
-            _guild_warning(guild, "Missing role %s", role_id)
-            role = await self._create_role(guild)
-
-        old_someone_id = guild_data.someone_id
-        if old_someone_id is not None:
-            if message is not None:
-                self._log_ping(session, old_someone_id, message)
-
-            old_someone_member = guild.get_member(old_someone_id)
-            if old_someone_member is not None:
-                await old_someone_member.remove_roles(role)
-
-        # Instead of picking a member at random in the naive way, we store an
-        # internal "bag" of members for each guild so that the distribution of
-        # people chosen to be @someone is more or less fair.
-        #
-        # The bag is a list of member IDs, from which we randomly choose and
-        # remove a value when we need a new @someone. If the bag is empty, we
-        # repopulate it with all members in the server.
-        #
-        # `member_bag_all` stores all members that have been in the guild at
-        # any point since the current bag was introduced. It is always a
-        # superset of the bag.
-
-        if len(guild_data.member_bag) == 0:
-            members = [
-                member.id
-                async for member in guild.fetch_members()
-                if await self._can_be_someone(session, member)
-            ]
-            guild_data.member_bag = members
-            guild_data.member_bag_all = members.copy() # .copy() may not be necessary?
-            _guild_info(guild, "Repopulated bag with %s members", len(members))
-
-        member_bag_len = len(guild_data.member_bag)
-        if member_bag_len == 0:
-            _guild_info(guild, "No members available for @someone")
-            if message is not None:
-                await message.reply(
-                    "But nobody came...\n"
-                    "-# There are no members available for @someone. Everyone is either opted out, or a bot. (What?)",
-                    mention_author=False
-                )
-            return
-
-        someone_id = _choose_and_delete(guild_data.member_bag)
-        guild_data.someone_id = someone_id
-
-        await session.commit()
-
-        member = not_none(guild.get_member(someone_id))
-        _guild_info(guild, "@someone is now %r (ID %s); %s left in bag", member.name, member.id, member_bag_len)
-        await member.add_roles(role)
-
-    async def _can_be_someone(self, session: AsyncSession, member: discord.Member) -> bool:
-        return not member.bot and await session.get(Optout, member.id) is None
-
-    def _log_ping(
-        self,
-        session: AsyncSession,
-        someone_id: int,
-        message: discord.Message
-    ) -> None:
-        session.add(Ping(
-            message_id=message.id,
-            someone_id=someone_id,
-            author_id=message.author.id,
-            guild_id=not_none(message.guild).id,
-            channel_id=message.channel.id,
-            time=message.created_at
-        ))
 
     @commands.hybrid_command(description="View the latest messages you were @someone'd in")
     async def pings(self, ctx: "Context"):
@@ -342,6 +224,129 @@ class Someone(commands.Cog):
                 ),
             allowed_mentions=discord.AllowedMentions(users=False),
         )
+
+    async def _setup_guild(self, session: AsyncSession, guild: discord.Guild) -> None:
+        role = await self._create_role(guild)
+
+        session.add(GuildData(id=guild.id, role_id=role.id))
+        await session.commit()
+
+        await self._change_someone(session, guild)
+
+    async def _create_role(self, guild: discord.Guild) -> discord.Role:
+        return await guild.create_role(name="someone", mentionable=True)
+
+    async def _add_to_member_bag(
+        self,
+        session: AsyncSession,
+        guild: discord.Guild,
+        user: discord.User | discord.Member,
+    ):
+        guild_data = await session.get_one(GuildData, guild.id)
+
+        if user.id in guild_data.member_bag_all:
+            _guild_info(guild, "User %r (ID %s) was not added to bag", user.id, user.name)
+            return
+
+        guild_data.member_bag_all.append(user.id)
+        guild_data.member_bag.append(user.id)
+        _guild_info(guild, "User %r (ID %s) was added to bag", user.name, user.id)
+
+    async def _remove_from_member_bag(
+        self,
+        session: AsyncSession,
+        guild: discord.Guild,
+        user: discord.User | discord.Member,
+    ):
+        guild_data = await session.get_one(GuildData, guild.id)
+        try:
+            guild_data.member_bag.remove(user.id)
+        except ValueError:
+            pass
+        _guild_info(guild, "User %r (ID %s) was removed from bag", user.name, user.id)
+
+    async def _change_someone(
+        self,
+        session: AsyncSession,
+        guild: discord.Guild,
+        message: discord.Message | None = None,
+    ) -> None:
+        guild_data = await session.get_one(GuildData, guild.id)
+
+        role_id = guild_data.role_id
+        role = guild.get_role(role_id)
+        if role is None:
+            _guild_warning(guild, "Missing role %s", role_id)
+            role = await self._create_role(guild)
+
+        old_someone_id = guild_data.someone_id
+        if old_someone_id is not None:
+            if message is not None:
+                self._log_ping(session, old_someone_id, message)
+
+            old_someone_member = guild.get_member(old_someone_id)
+            if old_someone_member is not None:
+                await old_someone_member.remove_roles(role)
+
+        # Instead of picking a member at random in the naive way, we store an
+        # internal "bag" of members for each guild so that the distribution of
+        # people chosen to be @someone is more or less fair.
+        #
+        # The bag is a list of member IDs, from which we randomly choose and
+        # remove a value when we need a new @someone. If the bag is empty, we
+        # repopulate it with all members in the server.
+        #
+        # `member_bag_all` stores all members that have been in the guild at
+        # any point since the current bag was introduced. It is always a
+        # superset of the bag.
+
+        if len(guild_data.member_bag) == 0:
+            members = [
+                member.id
+                async for member in guild.fetch_members()
+                if await self._can_be_someone(session, member)
+            ]
+            guild_data.member_bag = members
+            guild_data.member_bag_all = members.copy() # .copy() may not be necessary?
+            _guild_info(guild, "Repopulated bag with %s members", len(members))
+
+        member_bag_len = len(guild_data.member_bag)
+        if member_bag_len == 0:
+            _guild_info(guild, "No members available for @someone")
+            if message is not None:
+                await message.reply(
+                    "But nobody came...\n"
+                    "-# There are no members available for @someone. Everyone is either opted out, or a bot. (What?)",
+                    mention_author=False
+                )
+            return
+
+        someone_id = _choose_and_delete(guild_data.member_bag)
+        guild_data.someone_id = someone_id
+
+        await session.commit()
+
+        member = not_none(guild.get_member(someone_id))
+        _guild_info(guild, "@someone is now %r (ID %s); %s left in bag", member.name, member.id, member_bag_len)
+        await member.add_roles(role)
+
+    def _log_ping(
+        self,
+        session: AsyncSession,
+        someone_id: int,
+        message: discord.Message,
+    ) -> None:
+        session.add(Ping(
+            message_id=message.id,
+            someone_id=someone_id,
+            author_id=message.author.id,
+            guild_id=not_none(message.guild).id,
+            channel_id=message.channel.id,
+            time=message.created_at
+        ))
+
+    async def _can_be_someone(self, session: AsyncSession, member: discord.Member) -> bool:
+        return not member.bot and await session.get(Optout, member.id) is None
 
 async def setup(client: "Bot"):
     await client.add_cog(Someone(client))
