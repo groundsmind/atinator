@@ -82,15 +82,11 @@ async def main() -> None:
 
     token = not_none(os.getenv("TOKEN"))
 
-    command_prefixes_raw = os.getenv("COMMAND_PREFIXES")
-    command_prefixes = (
-        ["at!"]
-        if command_prefixes_raw is None else
-        [
-            cast(str, p).replace("\\,", ",")
-            for p in re.split(r"(?<!\\),", command_prefixes_raw)
-        ]
-    )
+    command_prefixes_raw = os.getenv("COMMAND_PREFIXES", "at!,sone!")
+    command_prefixes = [
+        cast(str, p).replace("\\,", ",")
+        for p in re.split(r"(?<!\\),", command_prefixes_raw)
+    ]
 
     engine = create_async_engine(os.getenv("DB_URL", "sqlite+aiosqlite:///db.sqlite"))
     sm = async_sessionmaker(engine, expire_on_commit=False)

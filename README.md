@@ -33,5 +33,5 @@ $ python3 atinator
 ### configuration
 
 a few other options can be set alongside `TOKEN` (default values in parentheses):
-- `COMMAND_PREFIXES` (`at!`): comma-separated list of prefixes for text commands (escape commas with a backslash)
+- `COMMAND_PREFIXES` (`at!,sone!`): comma-separated list of prefixes for text commands (escape commas with a backslash)
 - `DB_URL` (`sqlite+aiosqlite:///db.sqlite`): the database URL in [SQLAlchemy's format](https://docs.sqlalchemy.org/en/stable/core/engines.html#database-urls). the dialect must support async
