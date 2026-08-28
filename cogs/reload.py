@@ -9,16 +9,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-class ReloadCog(commands.Cog):
+class Reload(commands.Cog):
     def __init__(self, bot: "Bot"):
         self.bot = bot
 
-    @commands.hybrid_command(
-        description="Reload all cogs",
-    )
+    @commands.hybrid_command(description="Reload all cogs")
     @commands.is_owner()
     async def reload(self, ctx: "Context"):
-        logger.info("%r requested reload", ctx.author.name)
+        logger.info("User %r (ID %s) requested reload", ctx.author.name, ctx.author.id)
         try:
             await self.bot.reload_cogs()
             await ctx.send('All cogs reloaded successfully.')
@@ -33,4 +31,4 @@ class ReloadCog(commands.Cog):
             )
 
 async def setup(client: "Bot"):
-    await client.add_cog(ReloadCog(client))
+    await client.add_cog(Reload(client))

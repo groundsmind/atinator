@@ -39,7 +39,7 @@ class Ping(Base):
     message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     someone_id: Mapped[int] = mapped_column(BigInteger)
     author_id: Mapped[int] = mapped_column(BigInteger)
-    guild_id: Mapped[int] = mapped_column(BigInteger)
+    guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
     channel_id: Mapped[int] = mapped_column(BigInteger)
     time: Mapped[datetime] = mapped_column(DateTime)
 

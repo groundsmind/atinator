@@ -2,7 +2,7 @@ import logging
 import random
 from common import not_none
 from collections.abc import MutableSequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Concatenate
 import datetime
 
 import discord
@@ -11,7 +11,7 @@ from discord.ext import commands
 if TYPE_CHECKING:
     from main import Bot, Context
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import GuildData, Optout, Ping
@@ -27,7 +27,22 @@ def _choose_and_delete[T](seq: MutableSequence[T]) -> T:
     del seq[index]
     return value
 
-class MemberPickerCog(commands.Cog):
+def _wrap_log_guild[**P](
+    log_func: Callable[P, None]
+) -> Callable[Concatenate[discord.Guild, P], None]:
+    def _wrapper(guild: discord.Guild, *args: P.args, **kwargs: P.kwargs):
+        log_func(
+            'Guild %r (ID %s): ' + args[0], # type: ignore
+            guild.name, guild.id, *args[1:], # type: ignore
+            **kwargs,
+        )
+
+    return _wrapper
+
+_guild_info = _wrap_log_guild(logger.info)
+_guild_warning = _wrap_log_guild(logger.warning)
+
+class Someone(commands.Cog):
     def __init__(self, bot: "Bot") -> None:
         self.bot = bot
         self.sm = bot.sm
@@ -42,11 +57,13 @@ class MemberPickerCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild) -> None:
+        _guild_info(guild, 'Joined')
         async with self.sm() as session:
             await self.setup_guild(session, guild)
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild) -> None:
+        _guild_info(guild, 'Removed')
         async with self.sm() as session:
             await session.delete(session.get_one(GuildData, guild.id))
             await session.commit()
@@ -65,7 +82,11 @@ class MemberPickerCog(commands.Cog):
         if guild is None: return
 
         async with self.sm() as session:
-            guild_data = await session.get_one(GuildData, guild.id)
+            guild_data = await session.get(GuildData, guild.id)
+            if guild_data is None:
+                _guild_warning(guild, "Guild data does not exist yet")
+                return
+
             if guild_data.role_id in message.raw_role_mentions:
                 await self.change_someone(session, guild, message)
 
@@ -103,7 +124,7 @@ class MemberPickerCog(commands.Cog):
             opted_out = await session.get(Optout, author_id) is not None
 
             if opted_out:
-                logger.info("%r tried to opt out, but they already have", ctx.author.name)
+                logger.info("User %r (ID %s) tried to opt out, but they already have", ctx.author.name, author_id)
                 await ctx.send("You are already opted out! :(")
                 return
 
@@ -120,7 +141,7 @@ class MemberPickerCog(commands.Cog):
 
             await session.commit()
 
-        logger.info("%r opted out", ctx.author.name)
+        logger.info("User %r (ID %s) opted out", ctx.author.name, author_id)
         await ctx.send("Goodbye! You have opted out.")
 
     @commands.hybrid_command(description="Opt back into being pinged with @someone")
@@ -130,7 +151,7 @@ class MemberPickerCog(commands.Cog):
             opt_out = await session.get(Optout, author_id)
 
             if opt_out is None:
-                logger.info("%r tried to opt in, but they already have", ctx.author.name)
+                logger.info("User %r (ID %s) tried to opt in, but they already have", ctx.author.name, author_id)
                 await ctx.send("You are already opted in! :)")
                 return
 
@@ -146,7 +167,7 @@ class MemberPickerCog(commands.Cog):
 
             await session.commit()
 
-        logger.info("%r opted in", ctx.author.name)
+        logger.info("User %r (ID %s) opted in", ctx.author.name, author_id)
         await ctx.send("Hi! You have opted in.")
 
     async def change_someone(
@@ -160,7 +181,7 @@ class MemberPickerCog(commands.Cog):
         role_id = guild_data.role_id
         role = guild.get_role(role_id)
         if role is None:
-            logger.error("Guild %r: Missing role %s", guild.name, role_id)
+            _guild_info(guild, "Missing role %s", role_id)
             return
 
         old_someone_id = guild_data.someone_id
@@ -193,14 +214,15 @@ class MemberPickerCog(commands.Cog):
             ]
             guild_data.member_bag = members
             guild_data.member_bag_all = members.copy() # .copy() may not be necessary?
-            logger.info("Guild %r: Repopulated bag with %s members", guild.name, len(members))
+            _guild_info(guild, "Repopulated bag with %s members", len(members))
 
         member_bag_len = len(guild_data.member_bag)
         if member_bag_len == 0:
+            _guild_info(guild, "No members available for @someone")
             if message is not None:
                 await message.reply(
                     "But nobody came...\n"
-                    "-# There are no members available for @s\u043emeone.",
+                    "-# There are no members available for @someone. Everyone is either opted out, or a bot. (What?)",
                     mention_author=False
                 )
             return
@@ -211,7 +233,7 @@ class MemberPickerCog(commands.Cog):
         await session.commit()
 
         member = not_none(guild.get_member(someone_id))
-        logger.info("Guild %r: @someone is now %r; %s left in bag", guild.name, member.name, member_bag_len)
+        _guild_info(guild, "@someone is now %r; %s left in bag", member.name, member_bag_len)
         await member.add_roles(role)
 
     async def can_be_someone(
@@ -239,6 +261,8 @@ class MemberPickerCog(commands.Cog):
     @commands.hybrid_command(description="View the latest messages you were @someone'd in")
     @commands.guild_only()
     async def pings(self, ctx: "Context"):
+        limit: int = 5
+
         async with self.sm() as session:
             result = await session.execute(
                 select(Ping)
@@ -247,22 +271,60 @@ class MemberPickerCog(commands.Cog):
                         guild_id=not_none(ctx.guild).id
                     )
                     .order_by(Ping.time.desc())
-                    .limit(5)
+                    .limit(limit)
             )
 
             lines: list[str] = []
-            for i, (ping,) in enumerate(result.all()):
-                ping: Ping
+            for i, ping in enumerate(result.scalars()):
                 lines.append(
                     f"{i + 1}. https://discord.com/channels/{ping.guild_id}/{ping.channel_id}/{ping.message_id}: "
                     f"<t:{int(ping.time.replace(tzinfo=datetime.UTC).timestamp())}:R> by <@{ping.author_id}>"
                 )
 
+            content = (
+                "You haven't been @someone'd yet!"
+                if len(lines) == 0 else
+                "\n".join(lines) + f"\n-# Showing {limit} latest pings"
+            )
             await ctx.send(
-                "You haven't been @someone'd yet!" if len(lines) == 0 else "\n".join(lines),
+                content,
                 allowed_mentions=discord.AllowedMentions(users=False),
                 ephemeral=True,
             )
 
+    @commands.hybrid_command(description="View the bot's info for this guild")
+    @commands.guild_only()
+    async def guildinfo(self, ctx: "Context"):
+        guild_id = not_none(ctx.guild).id
+
+        async with self.sm() as session:
+            ping_count = not_none((
+                await session.execute(
+                    select(func.count())
+                        .select_from(Ping)
+                        .filter_by(guild_id=guild_id)
+                )
+            ).scalar())
+
+            last_pinged_member_id = not_none((
+                await session.execute(
+                    select(Ping.someone_id)
+                        .select_from(Ping)
+                        .filter_by(guild_id=guild_id)
+                        .order_by(Ping.time.desc())
+                        .limit(1)
+                )
+            ).scalar())
+
+            guild_data = await session.get_one(GuildData, guild_id)
+
+            await ctx.send(
+                embed=discord.Embed()
+                    .add_field(name="Last pinged member", value=f"<@{last_pinged_member_id}>", inline=False)
+                    .add_field(name="Current member bag length", value=len(guild_data.member_bag), inline=False)
+                    .add_field(name="Total ping count", value=ping_count, inline=False),
+                allowed_mentions=discord.AllowedMentions(users=False),
+            )
+
 async def setup(client: "Bot"):
-    await client.add_cog(MemberPickerCog(client))
+    await client.add_cog(Someone(client))

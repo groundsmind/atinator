@@ -22,11 +22,7 @@ type Context = commands.Context[Bot]
 logger = logging.getLogger(__name__)
 
 class Bot(commands.Bot):
-    def __init__(
-        self,
-        *,
-        sm: Callable[[], AsyncSession],
-    ):
+    def __init__(self, sm: Callable[[], AsyncSession]):
         self.sm = sm
 
         intents = discord.Intents.default()
@@ -91,7 +87,7 @@ async def main() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    bot = Bot(sm=sm)
+    bot = Bot(sm)
     await bot.start(token)
 
 if __name__ == "__main__":
