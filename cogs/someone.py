@@ -27,6 +27,9 @@ def _choose_and_delete[T](seq: MutableSequence[T]) -> T:
     del seq[index]
     return value
 
+# this could be a lot simpler (typescript just has Parameters<T>) but cant have
+# shit in python #Lol
+
 def _wrap_log_guild[**P](
     log_func: Callable[P, None]
 ) -> Callable[Concatenate[discord.Guild, P], None]:
@@ -53,13 +56,13 @@ class Someone(commands.Cog):
             async with self.sm() as session:
                 guild_data = await session.get(GuildData, guild.id)
                 if guild_data is None:
-                    await self.setup_guild(session, guild)
+                    await self._setup_guild(session, guild)
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild) -> None:
         _guild_info(guild, 'Joined')
         async with self.sm() as session:
-            await self.setup_guild(session, guild)
+            await self._setup_guild(session, guild)
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild) -> None:
@@ -68,13 +71,16 @@ class Someone(commands.Cog):
             await session.delete(session.get_one(GuildData, guild.id))
             await session.commit()
 
-    async def setup_guild(self, session: AsyncSession, guild: discord.Guild) -> None:
-        role = await guild.create_role(name="someone", mentionable=True)
+    async def _setup_guild(self, session: AsyncSession, guild: discord.Guild) -> None:
+        role = await self._create_role(guild)
 
         session.add(GuildData(id=guild.id, role_id=role.id))
         await session.commit()
 
-        await self.change_someone(session, guild)
+        await self._change_someone(session, guild)
+
+    async def _create_role(self, guild: discord.Guild) -> discord.Role:
+        return await guild.create_role(name="someone", mentionable=True)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -88,12 +94,12 @@ class Someone(commands.Cog):
                 return
 
             if guild_data.role_id in message.raw_role_mentions:
-                await self.change_someone(session, guild, message)
+                await self._change_someone(session, guild, message)
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
         async with self.sm() as session:
-            if not await self.can_be_someone(session, member): return
+            if not await self._can_be_someone(session, member): return
 
             guild_data = await session.get_one(GuildData, member.guild.id)
 
@@ -117,7 +123,7 @@ class Someone(commands.Cog):
 
             await session.commit()
 
-    @commands.hybrid_command(description="Opt out of being pinged with @someone in any server")
+    @commands.hybrid_command(description="Opt out of being pinged via @someone in any server")
     async def optout(self, ctx: "Context") -> None:
         async with self.sm() as session:
             author_id = ctx.author.id
@@ -144,7 +150,7 @@ class Someone(commands.Cog):
         logger.info("User %r (ID %s) opted out", ctx.author.name, author_id)
         await ctx.send("Goodbye! You have opted out.")
 
-    @commands.hybrid_command(description="Opt back into being pinged with @someone")
+    @commands.hybrid_command(description="Opt back into being pinged via @someone")
     async def optin(self, ctx: "Context") -> None:
         async with self.sm() as session:
             author_id = ctx.author.id
@@ -170,7 +176,7 @@ class Someone(commands.Cog):
         logger.info("User %r (ID %s) opted in", ctx.author.name, author_id)
         await ctx.send("Hi! You have opted in.")
 
-    async def change_someone(
+    async def _change_someone(
         self,
         session: AsyncSession,
         guild: discord.Guild,
@@ -181,36 +187,35 @@ class Someone(commands.Cog):
         role_id = guild_data.role_id
         role = guild.get_role(role_id)
         if role is None:
-            _guild_info(guild, "Missing role %s", role_id)
-            return
+            _guild_warning(guild, "Missing role %s", role_id)
+            role = await self._create_role(guild)
 
         old_someone_id = guild_data.someone_id
         if old_someone_id is not None:
             if message is not None:
-                self.log_ping(session, old_someone_id, message)
+                self._log_ping(session, old_someone_id, message)
 
             old_someone_member = guild.get_member(old_someone_id)
             if old_someone_member is not None:
                 await old_someone_member.remove_roles(role)
 
-        # Instead of picking a member at random naively, we store an
-        # internal "bag" of members for each guild so that the
-        # distribution of people chosen to be @someone is more or less
-        # fair.
+        # Instead of picking a member at random in the naive way, we store an
+        # internal "bag" of members for each guild so that the distribution of
+        # people chosen to be @someone is more or less fair.
         #
-        # The bag is a list of member IDs, from which we randomly choose
-        # and remove a value when we need a new @someone. If the bag is
-        # empty, we repopulate it with all members in the server.
+        # The bag is a list of member IDs, from which we randomly choose and
+        # remove a value when we need a new @someone. If the bag is empty, we
+        # repopulate it with all members in the server.
         #
-        # `member_bag_all` stores all members that have been in the guild
-        # at any point since the current bag was introduced. It is always
-        # a superset of the bag.
+        # `member_bag_all` stores all members that have been in the guild at
+        # any point since the current bag was introduced. It is always a
+        # superset of the bag.
 
         if len(guild_data.member_bag) == 0:
             members = [
                 member.id
                 async for member in guild.fetch_members()
-                if await self.can_be_someone(session, member)
+                if await self._can_be_someone(session, member)
             ]
             guild_data.member_bag = members
             guild_data.member_bag_all = members.copy() # .copy() may not be necessary?
@@ -236,14 +241,10 @@ class Someone(commands.Cog):
         _guild_info(guild, "@someone is now %r (ID %s); %s left in bag", member.name, member.id, member_bag_len)
         await member.add_roles(role)
 
-    async def can_be_someone(
-        self,
-        session: AsyncSession,
-        member: discord.Member
-    ) -> bool:
+    async def _can_be_someone(self, session: AsyncSession, member: discord.Member) -> bool:
         return not member.bot and await session.get(Optout, member.id) is None
 
-    def log_ping(
+    def _log_ping(
         self,
         session: AsyncSession,
         someone_id: int,
@@ -284,7 +285,7 @@ class Someone(commands.Cog):
             content = (
                 "You haven't been @someone'd yet!"
                 if len(lines) == 0 else
-                "\n".join(lines) + f"\n-# Showing {limit} latest pings"
+                "\n".join(lines) + f"\n-# Showing latest {limit} pings"
             )
             await ctx.send(
                 content,
@@ -320,9 +321,21 @@ class Someone(commands.Cog):
 
             await ctx.send(
                 embed=discord.Embed()
-                    .add_field(name="Last pinged member", value=f"<@{last_pinged_member_id}>", inline=False)
-                    .add_field(name="Current member bag length", value=len(guild_data.member_bag), inline=False)
-                    .add_field(name="Total ping count", value=ping_count, inline=False),
+                    .add_field(
+                        name="Last pinged member",
+                        value=f"<@{last_pinged_member_id}>",
+                        inline=False,
+                    )
+                    .add_field(
+                        name="Current member bag length",
+                        value=len(guild_data.member_bag),
+                        inline=False,
+                    )
+                    .add_field(
+                        name="Total ping count",
+                        value=ping_count,
+                        inline=False,
+                    ),
                 allowed_mentions=discord.AllowedMentions(users=False),
             )
 
