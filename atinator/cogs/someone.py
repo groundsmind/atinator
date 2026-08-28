@@ -235,7 +235,9 @@ class Someone(commands.Cog):
         await self._change_someone(session, guild)
 
     async def _create_role(self, guild: discord.Guild) -> discord.Role:
-        return await guild.create_role(name="someone", mentionable=True)
+        role = await guild.create_role(name="someone", mentionable=True)
+        _guild_info(guild, "Created role with ID %s", role.id)
+        return role
 
     async def _add_to_member_bag(
         self,
@@ -283,7 +285,7 @@ class Someone(commands.Cog):
         old_someone_id = guild_data.someone_id
         if old_someone_id is not None:
             if message is not None:
-                self._log_ping(session, old_someone_id, message)
+                self._add_ping(session, old_someone_id, message)
 
             old_someone_member = guild.get_member(old_someone_id)
             if old_someone_member is not None:
@@ -330,12 +332,16 @@ class Someone(commands.Cog):
         _guild_info(guild, "@someone is now %r (ID %s); %s left in bag", member.name, member.id, member_bag_len)
         await member.add_roles(role)
 
-    def _log_ping(
+    def _add_ping(
         self,
         session: AsyncSession,
         someone_id: int,
         message: discord.Message,
     ) -> None:
+        guild = not_none(message.guild)
+        author = message.author
+        _guild_info(guild, "User %r (ID %s) pinged @someone, which is user with ID %s", author.name, author.id, someone_id)
+
         session.add(Ping(
             message_id=message.id,
             someone_id=someone_id,
