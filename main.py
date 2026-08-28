@@ -40,10 +40,10 @@ class Bot(commands.Bot):
     async def _load_cogs_impl(self, reload: bool = True) -> None:
         dir: str = "cogs"
         names: list[str] = ["jishaku"]
-        for root, _dirs, files in os.walk(dir):
-            for file in files:
-                if not file.endswith(".py") or file == "__init__.py": continue
-                names.append(os.path.join(root, file).replace("\\", "/").replace("/", ".")[:-len(".py")])
+        for dir_path, _, filenames in os.walk(dir):
+            for filename in filenames:
+                if not filename.endswith(".py"): continue
+                names.append(os.path.join(dir_path, filename.removesuffix(".py")).replace("/", "."))
 
         excs: list[commands.ExtensionFailed] = []
         for name in names:

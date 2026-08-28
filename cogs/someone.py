@@ -98,28 +98,35 @@ class Someone(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
+        guild = member.guild
         async with self.sm() as session:
             if not await self._can_be_someone(session, member): return
 
-            guild_data = await session.get_one(GuildData, member.guild.id)
+            guild_data = await session.get_one(GuildData, guild.id)
 
-            if member.id not in guild_data.member_bag_all:
-                guild_data.member_bag_all.append(member.id)
-                guild_data.member_bag.append(member.id)
+            if member.id in guild_data.member_bag_all:
+                _guild_info(guild, "New member %r (ID %s) joined but was not added to bag", member.name, member.id)
+                return
+
+            guild_data.member_bag_all.append(member.id)
+            guild_data.member_bag.append(member.id)
+            _guild_info(guild, "New member %r (ID %s) joined and was added to bag")
 
             await session.commit()
 
     @commands.Cog.listener()
-    async def on_raw_member_remove(self, payload: discord.RawMemberRemoveEvent) -> None:
-        if payload.user.bot: return
-
+    async def on_member_remove(self, member: discord.Member) -> None:
+        guild = member.guild
         async with self.sm() as session:
-            guild_data = await session.get_one(GuildData, payload.guild_id)
+            if not await self._can_be_someone(session, member): return
+
+            guild_data = await session.get_one(GuildData, guild.id)
 
             try:
-                guild_data.member_bag.remove(payload.user.id)
+                guild_data.member_bag.remove(member.id)
             except ValueError:
                 pass
+            _guild_info(guild, "Member %r (ID %s) removed from bag", member.name, member.id)
 
             await session.commit()
 
@@ -262,6 +269,7 @@ class Someone(commands.Cog):
     @commands.hybrid_command(description="View the latest messages you were @someone'd in")
     @commands.guild_only()
     async def pings(self, ctx: "Context"):
+        # TODO: add pagination here maybe
         limit: int = 5
 
         async with self.sm() as session:
@@ -282,16 +290,16 @@ class Someone(commands.Cog):
                     f"<t:{int(ping.time.replace(tzinfo=datetime.UTC).timestamp())}:R> by <@{ping.author_id}>"
                 )
 
-            content = (
-                "You haven't been @someone'd yet!"
-                if len(lines) == 0 else
-                "\n".join(lines) + f"\n-# Showing latest {limit} pings"
-            )
-            await ctx.send(
-                content,
-                allowed_mentions=discord.AllowedMentions(users=False),
-                ephemeral=True,
-            )
+        content = (
+            "You haven't been @someone'd yet!"
+            if len(lines) == 0 else
+            "\n".join(lines) + f"\n-# Showing latest {limit} pings"
+        )
+        await ctx.send(
+            content,
+            allowed_mentions=discord.AllowedMentions(users=False),
+            ephemeral=True,
+        )
 
     @commands.hybrid_command(description="View the bot's info for this guild")
     @commands.guild_only()
@@ -319,25 +327,25 @@ class Someone(commands.Cog):
 
             guild_data = await session.get_one(GuildData, guild_id)
 
-            await ctx.send(
-                embed=discord.Embed()
-                    .add_field(
-                        name="Last pinged member",
-                        value=f"<@{last_pinged_member_id}>",
-                        inline=False,
-                    )
-                    .add_field(
-                        name="Current member bag length",
-                        value=len(guild_data.member_bag),
-                        inline=False,
-                    )
-                    .add_field(
-                        name="Total ping count",
-                        value=ping_count,
-                        inline=False,
-                    ),
-                allowed_mentions=discord.AllowedMentions(users=False),
-            )
+        await ctx.send(
+            embed=discord.Embed()
+                .add_field(
+                    name="Last pinged member",
+                    value=f"<@{last_pinged_member_id}>",
+                    inline=False,
+                )
+                .add_field(
+                    name="Current member bag length",
+                    value=len(guild_data.member_bag),
+                    inline=False,
+                )
+                .add_field(
+                    name="Total ping count",
+                    value=ping_count,
+                    inline=False,
+                ),
+            allowed_mentions=discord.AllowedMentions(users=False),
+        )
 
 async def setup(client: "Bot"):
     await client.add_cog(Someone(client))
