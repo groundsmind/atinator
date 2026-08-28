@@ -29,7 +29,7 @@ class Bot(commands.Bot):
         intents.message_content = True
         intents.members = True
         super().__init__(
-            command_prefix="sone!",
+            command_prefix=["at!", "sone!"],
             intents=intents,
         )
 
