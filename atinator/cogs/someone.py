@@ -9,7 +9,7 @@ import discord
 from discord.ext import commands
 
 if TYPE_CHECKING:
-    from main import Bot, Context
+    from bot import Bot, Context
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession

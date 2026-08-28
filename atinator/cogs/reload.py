@@ -5,7 +5,7 @@ from common import ExtensionsFailed
 from discord.ext import commands
 
 if TYPE_CHECKING:
-    from main import Bot, Context
+    from bot import Bot, Context
 
 logger = logging.getLogger(__name__)
 

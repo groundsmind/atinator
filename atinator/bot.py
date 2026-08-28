@@ -1,7 +1,7 @@
 import os
 import logging
-import asyncio
-from typing import Callable
+import re
+from typing import Callable, Iterable, cast
 from common import not_none, ExtensionsFailed
 
 from dotenv import load_dotenv
@@ -22,14 +22,14 @@ type Context = commands.Context[Bot]
 logger = logging.getLogger(__name__)
 
 class Bot(commands.Bot):
-    def __init__(self, sm: Callable[[], AsyncSession]):
+    def __init__(self, *, command_prefixes: Iterable[str], sm: Callable[[], AsyncSession]):
         self.sm = sm
 
         intents = discord.Intents.default()
         intents.message_content = True
         intents.members = True
         super().__init__(
-            command_prefix=["at!", "sone!"],
+            command_prefix=command_prefixes,
             intents=intents,
         )
 
@@ -77,21 +77,26 @@ class Bot(commands.Bot):
 async def main() -> None:
     discord.utils.setup_logging()
 
+    # TODO: put env parsing somewhere else if/when we have more config options 
     load_dotenv()
 
     token = not_none(os.getenv("TOKEN"))
 
-    engine = create_async_engine("sqlite+aiosqlite:///db.sqlite")
+    command_prefixes_raw = os.getenv("COMMAND_PREFIXES")
+    command_prefixes = (
+        ["at!"]
+        if command_prefixes_raw is None else
+        [
+            cast(str, p).replace("\\,", ",")
+            for p in re.split(r"(?<!\\),", command_prefixes_raw)
+        ]
+    )
+
+    engine = create_async_engine(os.getenv("DB_URL", "sqlite+aiosqlite:///db.sqlite"))
     sm = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    bot = Bot(sm)
+    bot = Bot(command_prefixes=command_prefixes, sm=sm)
     await bot.start(token)
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass

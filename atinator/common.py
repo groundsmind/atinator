@@ -1,3 +1,5 @@
+# mostly to avoid dependency cycles lol
+
 from discord.ext import commands
 
 class ExtensionsFailed(ExceptionGroup[commands.ExtensionFailed]): pass
