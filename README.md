@@ -2,6 +2,8 @@
 
 discord bot that reimplements the @someone april fools' feature
 
+[**invite**](https://discord.com/oauth2/authorize?client_id=1541883116690350170)
+
 ## how it works
 
 the bot adds one role to any guild it is added to, named "someone" by default (no shit). the role only holds one person at a time, and a new person is chosen every time it is pinged. ~~this makes it so you can see who will be pinged next time but whatever~~
