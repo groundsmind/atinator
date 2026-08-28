@@ -267,7 +267,6 @@ class Someone(commands.Cog):
         ))
 
     @commands.hybrid_command(description="View the latest messages you were @someone'd in")
-    @commands.guild_only()
     async def pings(self, ctx: "Context"):
         # TODO: add pagination here maybe
         limit: int = 5
@@ -275,10 +274,7 @@ class Someone(commands.Cog):
         async with self.sm() as session:
             result = await session.execute(
                 select(Ping)
-                    .filter_by(
-                        someone_id=ctx.author.id,
-                        guild_id=not_none(ctx.guild).id
-                    )
+                    .filter_by(someone_id=ctx.author.id)
                     .order_by(Ping.time.desc())
                     .limit(limit)
             )
