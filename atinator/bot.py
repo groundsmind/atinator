@@ -40,7 +40,7 @@ class Bot(commands.Bot):
     async def _load_cogs_impl(self, reload: bool = True) -> None:
         dir: str = "cogs"
         names: list[str] = ["jishaku"]
-        for dir_path, _, filenames in os.walk(os.path.dirname(__file__) + dir):
+        for dir_path, _, filenames in os.walk(os.path.join(os.path.dirname(__file__), dir)):
             for filename in filenames:
                 if not filename.endswith(".py"): continue
                 names.append(os.path.join(dir_path, filename.removesuffix(".py")).replace("/", "."))
