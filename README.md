@@ -8,7 +8,7 @@ discord bot that reimplements the @someone april fools' feature
 
 the bot adds one role to any guild it is added to, named "someone" by default (no shit). the role only holds one person at a time, and a new person is chosen every time it is pinged. ~~this makes it so you can see who will be pinged next time but whatever~~
 
-internally, the bot stores a bag of members queued to be @someone (this is outlined somewhere in [cogs/someone.py](cogs/someone.py))
+internally, the bot stores a bag of members queued to be @someone (this is outlined somewhere in [cogs/someone.py](atinator/cogs/someone.py))
 
 ## self-hosting
 
