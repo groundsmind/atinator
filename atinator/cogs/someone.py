@@ -1,5 +1,6 @@
 import logging
 import random
+import asyncio
 from common import not_none
 from collections.abc import MutableSequence
 from typing import TYPE_CHECKING, Callable, Concatenate
@@ -301,13 +302,12 @@ class Someone(commands.Cog):
         # superset of the bag.
 
         if len(guild_data.member_bag) == 0:
-            members = [
-                member.id
-                async for member in guild.fetch_members()
-                if await self._can_be_someone(session, member)
-            ]
+            all_members = [member async for member in guild.fetch_members()]
+            mask = await asyncio.gather(*(self._can_be_someone(session, member) for member in all_members))
+            members = [member.id for member, can_be in zip(all_members, mask) if can_be]
+
             guild_data.member_bag = members
-            guild_data.member_bag_all = members.copy() # .copy() may not be necessary?
+            guild_data.member_bag_all = members
             _guild_info(guild, "Repopulated bag with %s members", len(members))
 
         member_bag_len = len(guild_data.member_bag)
