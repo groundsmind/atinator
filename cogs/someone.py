@@ -233,7 +233,7 @@ class Someone(commands.Cog):
         await session.commit()
 
         member = not_none(guild.get_member(someone_id))
-        _guild_info(guild, "@someone is now %r; %s left in bag", member.name, member_bag_len)
+        _guild_info(guild, "@someone is now %r (ID %s); %s left in bag", member.name, member.id, member_bag_len)
         await member.add_roles(role)
 
     async def can_be_someone(
