@@ -21,6 +21,12 @@ type Context = commands.Context[Bot]
 
 logger = logging.getLogger(__name__)
 
+cogs = [
+    "jishaku",
+    "cogs.someone",
+    "cogs.reload",
+]
+
 class Bot(commands.Bot):
     def __init__(self, *, command_prefixes: Iterable[str], sm: Callable[[], AsyncSession]):
         self.sm = sm
@@ -38,15 +44,8 @@ class Bot(commands.Bot):
         logger.info("Logged in as %r", f"{user.name}#{user.discriminator}")
 
     async def _load_cogs_impl(self, reload: bool = True) -> None:
-        dir: str = "cogs"
-        names: list[str] = ["jishaku"]
-        for dir_path, _, filenames in os.walk(os.path.join(os.path.dirname(__file__), dir)):
-            for filename in filenames:
-                if not filename.endswith(".py"): continue
-                names.append(os.path.join(dir_path, filename.removesuffix(".py")).replace("/", "."))
-
         excs: list[commands.ExtensionFailed] = []
-        for name in names:
+        for name in cogs:
             try:
                 if not reload or (reload and name not in self.extensions):
                     await self.load_extension(name)
