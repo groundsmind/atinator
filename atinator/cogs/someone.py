@@ -7,6 +7,7 @@ from typing import Callable, Concatenate
 import datetime
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from bot import Bot, Context
@@ -109,7 +110,6 @@ class Someone(commands.Cog):
         async with self.sm() as session:
             author_id = ctx.author.id
             opted_out = await session.get(Optout, author_id) is not None
-
             if opted_out:
                 logger.info("User %r (ID %s) tried to opt out, but is already opted out", ctx.author.name, author_id)
                 await ctx.send("You are already opted out! :(")
@@ -131,7 +131,6 @@ class Someone(commands.Cog):
         async with self.sm() as session:
             author_id = ctx.author.id
             optout = await session.get(Optout, author_id)
-
             if optout is None:
                 logger.info("User %r (ID %s) tried to opt in, but is already opted in", ctx.author.name, author_id)
                 await ctx.send("You are already opted in! :)")
@@ -149,30 +148,44 @@ class Someone(commands.Cog):
         await ctx.send("Hi! You have opted in.")
 
     @commands.hybrid_command(description="View the latest messages you were @someone'd in")
-    async def pings(self, ctx: Context):
+    @app_commands.describe(
+        all_guilds="Whether or not to show pings from all guilds"
+    )
+    async def pings(self, ctx: Context, all_guilds: bool = False):
         # TODO: add pagination here maybe
         limit: int = 5
 
+        guild = ctx.guild
+        if guild is None: all_guilds = True
+
         async with self.sm() as session:
-            result = await session.execute(
+            stmt = (
                 select(Ping)
                     .filter_by(someone_id=ctx.author.id)
                     .order_by(Ping.time.desc())
                     .limit(limit)
             )
+            if not all_guilds:
+                stmt = stmt.filter_by(guild_id=not_none(guild).id)
+
+            result = await session.execute(stmt)
 
             lines: list[str] = []
             for i, ping in enumerate(result.scalars()):
                 lines.append(
-                    f"{i + 1}. https://discord.com/channels/{ping.guild_id}/{ping.channel_id}/{ping.message_id}: "
-                    f"<t:{int(ping.time.replace(tzinfo=datetime.UTC).timestamp())}:R> by <@{ping.author_id}>"
+                    f"{i + 1}. "
+                    f"https://discord.com/channels/{ping.guild_id}/{ping.channel_id}/{ping.message_id}: "
+                    f"<t:{int(ping.time.replace(tzinfo=datetime.UTC).timestamp())}:R> "
+                    f"by <@{ping.author_id}>"
                 )
 
-        content = (
-            "You haven't been @someone'd yet!"
-            if len(lines) == 0 else
-            "\n".join(lines) + f"\n-# Showing latest {limit} pings"
-        )
+        if len(lines) == 0:
+            where = "in any guild" if all_guilds else "in this guild"
+            content = f"You haven't been @someone'd {where} yet!"
+        else:
+            from_where = "from all guilds" if all_guilds else "from this guild"
+            content = f"\n".join(lines) + f"\n-# Showing latest {limit} pings {from_where}"
+
         await ctx.send(
             content,
             allowed_mentions=discord.AllowedMentions(users=False),
