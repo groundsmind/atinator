@@ -8,7 +8,7 @@ discord bot that reimplements the @someone april fools' feature
 
 the bot adds one role to any guild it is added to, named "someone" by default (no shit). the role only holds one person at a time, and a new person is chosen every time it is pinged. ~~this makes it so you can see who will be pinged next time but whatever~~
 
-internally, the bot stores a bag of members queued to be @someone (this is outlined somewhere in [cogs/someone.py](atinator/cogs/someone.py))
+internally, the bot stores a bag of members queued to be @someone (this is outlined somewhere in [cogs/someone.py](cogs/someone.py))
 
 ## self-hosting
 
@@ -35,5 +35,6 @@ $ python3 atinator
 ### configuration
 
 a few other options can be set alongside `TOKEN` (default values in parentheses):
-- `COMMAND_PREFIXES` (`at!,sone!`): comma-separated list of prefixes for text commands (escape commas with a backslash)
 - `DB_URL` (`sqlite+aiosqlite:///db.sqlite`): the database URL in [SQLAlchemy's format](https://docs.sqlalchemy.org/en/stable/core/engines.html#database-urls). the dialect must support async
+- `COMMAND_PREFIXES` (`at!,sone!`): comma-separated list of prefixes for text commands (escape commas with a backslash)
+- `USE_JISHAKU` (`true`): whether to load Jishaku, which lets the bot owner(s) execute arbitrary commands on the machine the bot is hosted on.

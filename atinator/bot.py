@@ -1,10 +1,12 @@
-import os
+from dataclasses import dataclass, field
 import logging
-import re
-from typing import Callable, Iterable, cast
+import asyncio
+from collections.abc import Callable, Awaitable
 from common import not_none, ExtensionsFailed
 
 from dotenv import load_dotenv
+
+from config import ConfigBase
 
 import discord
 from discord.ext import commands
@@ -21,21 +23,28 @@ type Context = commands.Context[Bot]
 
 logger = logging.getLogger(__name__)
 
-cogs = [
-    "jishaku",
+_cogs = [
     "cogs.someone",
     "cogs.reload",
 ]
 
+@dataclass(kw_only=True)
+class Config(ConfigBase):
+    token: str
+    db_url: str = "sqlite+aiosqlite:///db.sqlite"
+    command_prefixes: set[str] = field(default_factory=lambda: {"sone!", "at!"})
+    use_jishaku: bool = True
+
 class Bot(commands.Bot):
-    def __init__(self, *, command_prefixes: Iterable[str], sm: Callable[[], AsyncSession]):
+    def __init__(self, config: Config, sm: Callable[[], AsyncSession]):
         self.sm = sm
+        self.config = config
 
         intents = discord.Intents.default()
         intents.message_content = True
         intents.members = True
         super().__init__(
-            command_prefix=command_prefixes,
+            command_prefix=config.command_prefixes,
             intents=intents,
         )
 
@@ -44,15 +53,21 @@ class Bot(commands.Bot):
         logger.info("Logged in as %r", f"{user.name}#{user.discriminator}")
 
     async def _load_cogs_impl(self, reload: bool = True) -> None:
-        excs: list[commands.ExtensionFailed] = []
-        for name in cogs:
+        async def load(name: str):
             try:
                 if not reload or (reload and name not in self.extensions):
                     await self.load_extension(name)
                 else:
                     await self.reload_extension(name)
             except commands.ExtensionFailed as exc:
-                excs.append(exc)
+                return exc
+
+        coros: list[Awaitable[commands.ExtensionFailed | None]] = []
+        if self.config.use_jishaku:
+            coros.append(load("jishaku"))
+        for name in _cogs:
+            coros.append(load(name))
+        excs = [exc for exc in await asyncio.gather(*coros) if exc is not None]
 
         await self.tree.sync()
 
@@ -76,22 +91,15 @@ class Bot(commands.Bot):
 async def main() -> None:
     discord.utils.setup_logging()
 
-    # TODO: put env parsing somewhere else if/when we have more config options 
     load_dotenv()
 
-    token = not_none(os.getenv("TOKEN"))
+    config = Config.from_env()
 
-    command_prefixes_raw = os.getenv("COMMAND_PREFIXES", "at!,sone!")
-    command_prefixes = [
-        cast(str, p).replace("\\,", ",")
-        for p in re.split(r"(?<!\\),", command_prefixes_raw)
-    ]
-
-    engine = create_async_engine(os.getenv("DB_URL", "sqlite+aiosqlite:///db.sqlite"))
+    engine = create_async_engine(config.db_url)
     sm = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    bot = Bot(command_prefixes=command_prefixes, sm=sm)
-    await bot.start(token)
+    bot = Bot(config, sm)
+    await bot.start(config.token)
