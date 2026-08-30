@@ -51,8 +51,8 @@ class ConfigBase:
         if type_ is int: return int(str_)
         if type_ is bool:
             str_ = str_.casefold()
-            if str_ in cls._bool_strs[0]: return True
-            if str_ in cls._bool_strs[1]: return False
+            if str_ in cls._bool_strs[0]: return False
+            if str_ in cls._bool_strs[1]: return True
             raise ValueError(f"invalid bool value (valid: {cls._bool_strs[0]!r}; {cls._bool_strs[1]!r})")
 
         origin_raw = typing.get_origin(type_)
