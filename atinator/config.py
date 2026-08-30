@@ -91,11 +91,11 @@ class ConfigBase:
             try:
                 if str_ is None:
                     if field.default is MISSING:
-                        raise KeyError(f"required environment variable {field} not found")
+                        raise KeyError(f"required environment variable {env_name!r} not found")
                     value = None
                 else:
                     if not isinstance(type_, (type, TypeAliasType, GenericAlias)):
-                        raise TypeError(f"dataclass field {name!r} has invalid annotation {type_!r}")
+                        raise TypeError(f"dataclass field {name!r} has invalid annotation {type_!r} of type {type(type_).__qualname__!r}")
 
                     value = cls._str_to_value(str_, type_)
 
