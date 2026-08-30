@@ -3,14 +3,13 @@ import random
 import asyncio
 from common import not_none
 from collections.abc import MutableSequence
-from typing import TYPE_CHECKING, Callable, Concatenate
+from typing import Callable, Concatenate
 import datetime
 
 import discord
 from discord.ext import commands
 
-if TYPE_CHECKING:
-    from bot import Bot, Context
+from bot import Bot, Context
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +45,7 @@ _guild_info = _wrap_log_guild(logger.info)
 _guild_warning = _wrap_log_guild(logger.warning)
 
 class Someone(commands.Cog):
-    def __init__(self, bot: "Bot") -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot = bot
         self.sm = bot.sm
 
@@ -106,7 +105,7 @@ class Someone(commands.Cog):
             await session.commit()
 
     @commands.hybrid_command(description="Opt out of being pinged via @someone in any server")
-    async def optout(self, ctx: "Context") -> None:
+    async def optout(self, ctx: Context) -> None:
         async with self.sm() as session:
             author_id = ctx.author.id
             opted_out = await session.get(Optout, author_id) is not None
@@ -128,7 +127,7 @@ class Someone(commands.Cog):
         await ctx.send("Goodbye! You have opted out.")
 
     @commands.hybrid_command(description="Opt back into being pinged via @someone")
-    async def optin(self, ctx: "Context") -> None:
+    async def optin(self, ctx: Context) -> None:
         async with self.sm() as session:
             author_id = ctx.author.id
             optout = await session.get(Optout, author_id)
@@ -150,7 +149,7 @@ class Someone(commands.Cog):
         await ctx.send("Hi! You have opted in.")
 
     @commands.hybrid_command(description="View the latest messages you were @someone'd in")
-    async def pings(self, ctx: "Context"):
+    async def pings(self, ctx: Context):
         # TODO: add pagination here maybe
         limit: int = 5
 
@@ -182,7 +181,7 @@ class Someone(commands.Cog):
 
     @commands.hybrid_command(description="View the bot's info for this guild")
     @commands.guild_only()
-    async def guildinfo(self, ctx: "Context"):
+    async def guildinfo(self, ctx: Context):
         guild_id = not_none(ctx.guild).id
 
         async with self.sm() as session:
