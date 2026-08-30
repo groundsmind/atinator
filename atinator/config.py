@@ -28,7 +28,7 @@ def _resolve_alias(type_: type | TypeAliasType) -> type:
         raise TypeError(f"{type_!r} is not a type or cannot resolve to one")
     return temp
 
-@dataclass(kw_only=True)
+@dataclass
 class ConfigBase:
     _bool_strs: ClassVar[tuple[Collection[str], Collection[str]]] = (
         {"false", "off", "no", "0"},

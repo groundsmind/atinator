@@ -28,7 +28,7 @@ _cogs = [
     "cogs.reload",
 ]
 
-@dataclass(kw_only=True)
+@dataclass
 class Config(ConfigBase):
     token: str
     db_url: str = "sqlite+aiosqlite:///db.sqlite"
