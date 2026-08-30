@@ -68,7 +68,7 @@ class Someone(commands.Cog):
     async def on_guild_remove(self, guild: discord.Guild) -> None:
         _guild_info(guild, "Bot removed")
         async with self.sm() as session:
-            await session.delete(session.get_one(GuildData, guild.id))
+            await session.delete(await session.get_one(GuildData, guild.id))
             await session.commit()
 
     @commands.Cog.listener()
@@ -205,6 +205,7 @@ class Someone(commands.Cog):
             ).scalar())
 
             guild_data = await session.get_one(GuildData, guild_id)
+            member_bag_len = len(guild_data.member_bag)
 
         await ctx.send(
             embed=discord.Embed()
@@ -215,7 +216,7 @@ class Someone(commands.Cog):
                 )
                 .add_field(
                     name="Current member bag length",
-                    value=len(guild_data.member_bag),
+                    value=member_bag_len,
                     inline=False,
                 )
                 .add_field(
