@@ -48,12 +48,12 @@ class ConfigBase:
             type_ = _resolve_alias(type_)
 
         if type_ is str: return str_
-        if type_ is int: return int(str_)
+        if type_ is int or type_ is float: return type_(str_)
         if type_ is bool:
-            str_ = str_.casefold()
-            if str_ in cls._bool_strs[0]: return False
-            if str_ in cls._bool_strs[1]: return True
-            raise ValueError(f"invalid bool value (valid: {cls._bool_strs[0]!r}; {cls._bool_strs[1]!r})")
+            str_cf = str_.casefold()
+            if str_cf in cls._bool_strs[0]: return False
+            if str_cf in cls._bool_strs[1]: return True
+            raise ValueError(f"invalid bool value {str_!r} (valid: {cls._bool_strs[0]!r}; {cls._bool_strs[1]!r})")
 
         origin_raw = typing.get_origin(type_)
         if origin_raw is not None:
